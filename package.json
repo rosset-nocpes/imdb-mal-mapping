@@ -1,0 +1,53 @@
+{
+  "name": "imdb-mal-mapping",
+  "version": "0.1.0",
+  "description": "Map IMDb ids to MyAnimeList ids with seasons and episode ranges, and place MAL entries in a provider's own season layout.",
+  "keywords": [
+    "anime",
+    "imdb",
+    "mal",
+    "mapping",
+    "myanimelist",
+    "season",
+    "tmdb",
+    "tvdb"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rosset-nocpes/imdb-mal-mapping.git"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/core.d.ts",
+      "default": "./dist/core.js"
+    }
+  },
+  "scripts": {
+    "build:index": "bun scripts/build-index.ts",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint --deny-warnings",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "check": "bun run format:check && bun run lint && bun run typecheck && bun test",
+    "release": "bun scripts/release.ts",
+    "prepublishOnly": "bun run build"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "oxfmt": "^0.76.0",
+    "oxlint": "^1.91.0",
+    "typescript": "^7.0.2"
+  }
+}

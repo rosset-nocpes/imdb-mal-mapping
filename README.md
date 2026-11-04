@@ -154,8 +154,7 @@ src/
     season-resolver.ts   SeasonResolver: picks the franchise, builds the Resolution
 scripts/
   build-index.ts         downloads sources, writes src/dataset.ts
-  release.ts             publishes to npm when needed
-  lib/                   SourceDownloader, IndexBuilder, DatasetModule, NpmRelease
+  lib/                   SourceDownloader, IndexBuilder, DatasetModule
 ```
 
 ## License

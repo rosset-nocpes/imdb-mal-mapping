@@ -18,7 +18,11 @@ export type Anime = {
   /** The entry starts after this episode of `season`. */
   episodeOffset?: number;
   tvdbId?: number;
+  /** A TMDB TV show or movie id, as `tmdbType` says. */
   tmdbId?: number;
+  /** What `tmdbId` names. Films can be filed under their series' specials. */
+  tmdbType?: "tv" | "movie";
+  /** TMDB season, when TMDB numbers the show differently from TVDB. */
   tmdbSeason?: number;
   tmdbEpisodeOffset?: number;
   /** fribb: listed; inferred: IMDb id taken from the TVDB/TMDB series; manual: overrides.json. */
@@ -29,6 +33,8 @@ export type Anime = {
 export type Entry = Anime & {
   /** Last episode of `season` this entry covers, when a later entry continues the season. */
   episodeEnd?: number;
+  /** `episodeEnd` in TMDB's numbering of `tmdbSeason`. */
+  tmdbEpisodeEnd?: number;
 };
 
 /** A MAL entry as listed under an IMDb title. */

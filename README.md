@@ -62,7 +62,8 @@ const mapping = new AnimeMapping(index);
 mapping.byMal(38524);
 // { malId: 38524, imdbId: "tt2560140", season: 3, episodeOffset: 12, episodes: 10,
 //   title: "Shingeki no Kyojin Season 3 Part 2", type: "TV", year: 2019,
-//   tvdbId: 267440, tmdbId: 1429, tmdbSeason: 3, tmdbEpisodeOffset: 12, source: "fribb" }
+//   tvdbId: 267440, tmdbId: 1429, tmdbType: "tv", tmdbSeason: 3, tmdbEpisodeOffset: 12,
+//   source: "fribb" }
 
 mapping.byImdb("tt13293588");
 // [{ malId: 39535, season: 1, episodeEnd: 11, … },
@@ -70,15 +71,17 @@ mapping.byImdb("tt13293588");
 //  { malId: 51179, season: 2, episodeEnd: 12, … }, …]
 ```
 
-| Field           | Meaning                                                                                                   |
-| --------------- | --------------------------------------------------------------------------------------------------------- |
-| `season`        | IMDb/TVDB season. `0` means specials; absent for movies.                                                  |
-| `episodeOffset` | The entry starts after this episode of the season. 12 means MAL episode 1 is S3E13.                       |
-| `episodeEnd`    | Last episode of the season belonging to this entry, present when a later entry continues the same season. |
-| `episodes`      | MAL episode count; absent while unknown.                                                                  |
-| `airing`        | Still airing or upcoming; `episodes` may only count what has aired.                                       |
-| `imdbIds`       | Every known IMDb id when there are several; `imdbId` is the series one.                                   |
-| `source`        | `fribb` listed, `inferred` IMDb id taken from the TVDB/TMDB series, `manual` from `data/overrides.json`.  |
+| Field                                               | Meaning                                                                                                   |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `season`                                            | IMDb/TVDB season. `0` means specials; absent for movies.                                                  |
+| `episodeOffset`                                     | The entry starts after this episode of the season. 12 means MAL episode 1 is S3E13.                       |
+| `episodeEnd`                                        | Last episode of the season belonging to this entry, present when a later entry continues the same season. |
+| `episodes`                                          | MAL episode count; absent while unknown.                                                                  |
+| `tmdbType`                                          | Whether `tmdbId` is a `tv` show or a `movie`. A film can carry its series' TV id (filed under specials).  |
+| `tmdbSeason`, `tmdbEpisodeOffset`, `tmdbEpisodeEnd` | The same range in TMDB's numbering, which can differ from TVDB's.                                         |
+| `airing`                                            | Still airing or upcoming; `episodes` may only count what has aired.                                       |
+| `imdbIds`                                           | Every known IMDb id when there are several; `imdbId` is the series one.                                   |
+| `source`                                            | `fribb` listed, `inferred` IMDb id taken from the TVDB/TMDB series, `manual` from `data/overrides.json`.  |
 
 `byMal` returns `undefined` and `byImdb` returns `[]` for unknown ids.
 

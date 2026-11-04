@@ -294,3 +294,54 @@ describe("context mode (layouts seen on some provider)", () => {
     expect(placed(25777, seasons)?.season).toBe(2);
   });
 });
+
+describe("TMDB numbering", () => {
+  // TVDB splits the cours into seasons 1 and 2; TMDB keeps one season.
+  const index: Index = {
+    schema: 1,
+    hash: "tmdb",
+    builtAt: "2026-11-04T00:00:00.000Z",
+    count: 3,
+    anime: {
+      "1": {
+        malId: 1,
+        imdbId: "tt0000001",
+        season: 1,
+        tmdbId: 10,
+        tmdbType: "tv",
+        tmdbSeason: 1,
+        source: "fribb",
+      },
+      "2": {
+        malId: 2,
+        imdbId: "tt0000001",
+        season: 2,
+        tmdbId: 10,
+        tmdbType: "tv",
+        tmdbSeason: 1,
+        tmdbEpisodeOffset: 12,
+        source: "fribb",
+      },
+      "3": {
+        malId: 3,
+        imdbId: "tt0000001",
+        tmdbId: 30,
+        tmdbType: "movie",
+        source: "fribb",
+      },
+    },
+  };
+  const tmdb = new AnimeMapping(index);
+
+  test("gives where an entry ends in TMDB's season", () => {
+    expect(tmdb.byMal(1)).toMatchObject({
+      episodeEnd: undefined,
+      tmdbEpisodeEnd: 12,
+    });
+    expect(tmdb.byMal(2)?.tmdbEpisodeEnd).toBeUndefined();
+  });
+
+  test("has no TMDB episode range for movies", () => {
+    expect(tmdb.byMal(3)?.tmdbEpisodeEnd).toBeUndefined();
+  });
+});

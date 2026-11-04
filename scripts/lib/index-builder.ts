@@ -126,6 +126,11 @@ export class IndexBuilder {
       episodeOffset: entry.episode_offset?.tvdb || undefined,
       tvdbId: entry.tvdb_id,
       tmdbId: entry.themoviedb_id?.tv ?? [entry.themoviedb_id?.movie].flat()[0],
+      tmdbType: entry.themoviedb_id?.tv
+        ? ("tv" as const)
+        : entry.themoviedb_id?.movie
+          ? ("movie" as const)
+          : undefined,
       tmdbSeason: entry.season?.tmdb,
       tmdbEpisodeOffset: entry.episode_offset?.tmdb || undefined,
       source,

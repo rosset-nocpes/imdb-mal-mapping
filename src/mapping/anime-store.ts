@@ -82,9 +82,36 @@ export class AnimeStore {
     return end;
   }
 
+  /** Where the next entry of the same TMDB season starts, if any. */
+  tmdbEpisodeEnd(entry: Anime): number | undefined {
+    if (entry.tmdbSeason === undefined || entry.tmdbType !== "tv") {
+      return undefined;
+    }
+    const offset = entry.tmdbEpisodeOffset ?? 0;
+    let end: number | undefined;
+    for (const other of this.series(entry.imdbId)) {
+      const otherOffset = other.tmdbEpisodeOffset ?? 0;
+      if (
+        other.tmdbId === entry.tmdbId &&
+        other.tmdbSeason === entry.tmdbSeason &&
+        otherOffset > offset &&
+        (end === undefined || otherOffset < end)
+      ) {
+        end = otherOffset;
+      }
+    }
+    return end;
+  }
+
   entry(malId: number): Entry | undefined {
     const anime = this.get(malId);
-    return anime && { ...anime, episodeEnd: this.episodeEnd(anime) };
+    return (
+      anime && {
+        ...anime,
+        episodeEnd: this.episodeEnd(anime),
+        tmdbEpisodeEnd: this.tmdbEpisodeEnd(anime),
+      }
+    );
   }
 
   matches(imdbId: string): Match[] {

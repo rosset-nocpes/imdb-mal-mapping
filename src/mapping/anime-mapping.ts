@@ -22,6 +22,11 @@ export class AnimeMapping {
     this.#resolver = new SeasonResolver(this.#store, costs);
   }
 
+  /** Content hash of the dataset's entries. */
+  get hash(): string {
+    return this.#store.hash;
+  }
+
   /** When the dataset was built (ISO 8601). */
   get builtAt(): string {
     return this.#store.builtAt;

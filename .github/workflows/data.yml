@@ -1,0 +1,79 @@
+name: Data
+
+# Rebuilds the dataset and publishes it to the `data` branch, where clients
+# download it (raw.githubusercontent.com, mirrored by jsDelivr). No npm
+# release is involved: installed packages pick the new data up on their own.
+on:
+  schedule:
+    - cron: "17 4 * * 1" # weekly
+  push:
+    branches: [main]
+    paths:
+      - data/**
+      - scripts/**
+      - src/types.ts
+      - src/remote/dataset-client.ts
+  workflow_dispatch:
+    inputs:
+      allow_shrink:
+        description: Publish even if the dataset lost more than 10% of its entries
+        type: boolean
+        default: false
+
+permissions:
+  contents: write # pushes the data branch
+
+concurrency: data
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install --frozen-lockfile
+
+      - run: bun run build:index --out .data
+
+      - name: Check out the data branch
+        run: |
+          if git fetch --depth=1 origin data; then
+            git worktree add -B data published FETCH_HEAD
+          else
+            git worktree add --orphan -b data published
+          fi
+
+      - name: Check the dataset
+        run: bun run check:dataset .data/v1 published/v1
+        env:
+          ALLOW_SHRINK: ${{ inputs.allow_shrink && '1' || '' }}
+
+      - name: Publish
+        id: publish
+        working-directory: published
+        run: |
+          new=$(jq -r .hash ../.data/v1/manifest.json)
+          old=$(jq -r .hash v1/manifest.json 2>/dev/null || echo none)
+          if [ "$new" = "$old" ]; then
+            echo "Data unchanged ($new)."
+            exit 0
+          fi
+          mkdir -p v1
+          cp ../.data/v1/index.json ../.data/v1/manifest.json v1/
+          git add v1
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -qm "data: $new ($(jq -r .count v1/manifest.json) anime)"
+          git push origin data
+          echo "changed=true" >>"$GITHUB_OUTPUT"
+
+      # jsDelivr otherwise serves the old files for up to 12 hours.
+      - name: Purge the jsDelivr mirror
+        if: steps.publish.outputs.changed
+        run: |
+          for file in manifest.json index.json; do
+            curl -fsS "https://purge.jsdelivr.net/gh/${{ github.repository }}@data/v1/$file" >/dev/null ||
+              echo "::warning::could not purge $file from jsDelivr"
+          done

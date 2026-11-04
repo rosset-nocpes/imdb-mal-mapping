@@ -45,8 +45,17 @@ export type Match = Pick<
 >;
 
 /** The dataset, as built by scripts/build-index.ts. */
-export type Index = {
+export type Index = Manifest & {
+  anime: Record<string, Anime>;
+};
+
+/** The dataset without its entries: what `manifest.json` holds. */
+export type Manifest = {
+  /** Dataset format version; this release reads `SCHEMA_VERSION`. */
+  schema: number;
+  /** Content hash of `anime`; changes only when the data does. */
+  hash: string;
+  /** When the dataset was built (ISO 8601). */
   builtAt: string;
   count: number;
-  anime: Record<string, Anime>;
 };

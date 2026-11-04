@@ -7,5 +7,5 @@
     "perf": "warn"
   },
   "env": { "builtin": true, "es2024": true },
-  "ignorePatterns": ["dist/**", "src/dataset.ts"]
+  "ignorePatterns": ["dist/**", ".data/**"]
 }

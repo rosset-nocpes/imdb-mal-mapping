@@ -1,7 +1,7 @@
 {
   "name": "imdb-mal-mapping",
-  "version": "1.0.0",
-  "description": "Map IMDb ids to MyAnimeList ids with seasons and episode ranges, and place MAL entries in a provider's own season layout.",
+  "version": "2.0.0",
+  "description": "Map IMDb ids to MyAnimeList ids with seasons and episode ranges, and place MAL entries in a provider's own season layout. The dataset updates weekly without new releases.",
   "keywords": [
     "anime",
     "imdb",
@@ -30,10 +30,15 @@
     "./core": {
       "types": "./dist/core.d.ts",
       "default": "./dist/core.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "default": "./dist/node.js"
     }
   },
   "scripts": {
     "build:index": "bun scripts/build-index.ts",
+    "check:dataset": "bun scripts/check-dataset.ts",
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
@@ -48,5 +53,8 @@
     "oxfmt": "^0.76.0",
     "oxlint": "^1.91.0",
     "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

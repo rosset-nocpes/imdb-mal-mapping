@@ -1,16 +1,20 @@
 name: Release
 
+# Publishes the library when package.json carries a version npm doesn't have
+# yet. Data updates never need a release (see data.yml).
+#
+# Uses npm trusted publishing: no token. Set it up once on npmjs.com under the
+# package's Settings → Trusted Publisher → GitHub Actions, with this
+# repository and the workflow file name `release.yml`.
 on:
   push:
     branches: [main]
-  schedule:
-    - cron: "17 4 * * 1" # weekly data refresh
   workflow_dispatch:
 
 permissions:
-  contents: write # version commit, tag and GitHub Release
+  contents: write # tag and GitHub Release
+  id-token: write # npm trusted publishing
 
-# A push and the weekly run must not pick the same next version.
 concurrency: release
 
 jobs:
@@ -19,64 +23,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: oven-sh/setup-bun@v2
-
-      - run: bun install --frozen-lockfile
-
-      - run: bun run build:index
-
-      - run: bun run check # oxfmt, oxlint, tsc, tests
-
-      # A new package.json version ships as is. Otherwise, changed data ships
-      # as the next patch over npm's latest, which records its dataHash.
-      - name: Choose version
+      - name: Find an unpublished version
         id: version
         run: |
-          pkg=$(jq -r .name package.json)
+          name=$(jq -r .name package.json)
           version=$(jq -r .version package.json)
-          hash=$(bun -p 'require("./src/dataset.ts").hash')
-          if curl -fs -o /dev/null "https://registry.npmjs.org/$pkg/$version"; then
-            latest=$(curl -fsS "https://registry.npmjs.org/$pkg/latest")
-            if [ "$(jq -r .dataHash <<<"$latest")" = "$hash" ]; then
-              echo "$pkg@$(jq -r .version <<<"$latest") already has data $hash."
-              exit 0
-            fi
-            IFS=. read -r major minor patch <<<"$(jq -r .version <<<"$latest")"
-            version="$major.$minor.$((patch + 1))"
+          if curl -fs -o /dev/null "https://registry.npmjs.org/$name/$version"; then
+            echo "$name@$version is already published."
+          else
+            echo "version=$version" >>"$GITHUB_OUTPUT"
           fi
-          jq --arg v "$version" --arg h "$hash" '.version = $v | .dataHash = $h' package.json >package.tmp
-          mv package.tmp package.json
-          echo "version=$version" >>"$GITHUB_OUTPUT"
-          echo "hash=$hash" >>"$GITHUB_OUTPUT"
 
       - if: steps.version.outputs.version
-        run: bun publish
-        env:
-          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      # Puts the published version back in main's package.json (without
-      # dataHash) and tags that commit. Pushes made with github.token don't
-      # start workflows, so this can't loop.
-      - name: Commit version and tag
-        if: steps.version.outputs.version
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          git checkout package.json
-          jq --arg v "$VERSION" '.version = $v' package.json >package.tmp
-          mv package.tmp package.json
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git diff --quiet || git commit -qam "chore: release v$VERSION"
-          git tag "v$VERSION"
-          git push --atomic origin HEAD:main "v$VERSION"
+        uses: oven-sh/setup-bun@v2
 
       - if: steps.version.outputs.version
-        run: >
-          gh release create "v${{ steps.version.outputs.version }}"
-          --verify-tag
-          --title "v${{ steps.version.outputs.version }}"
-          --notes "Data hash: \`${{ steps.version.outputs.hash }}\`"
-          --generate-notes
+        run: bun install --frozen-lockfile
+
+      - if: steps.version.outputs.version
+        run: bun run check # oxfmt, oxlint, tsc, tests
+
+      # Trusted publishing needs npm 11.5.1+, which Node 24 ships.
+      - if: steps.version.outputs.version
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - if: steps.version.outputs.version
+        run: npm publish
+
+      - if: steps.version.outputs.version
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
+          gh release create "v$VERSION" --verify-tag --title "v$VERSION" --generate-notes

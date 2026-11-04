@@ -2,37 +2,69 @@
 
 # imdb-mal-mapping
 
-Map IMDb ids to MyAnimeList ids with the season and episode range of each MAL entry, offline. Context mode places a MAL entry inside a provider's own season layout, even when that layout disagrees with IMDb.
+Map IMDb ids to MyAnimeList ids with the season and episode range of each MAL entry. Context mode places a MAL entry inside a provider's own season layout, even when that layout disagrees with IMDb.
 
 ```sh
 npm install imdb-mal-mapping
 ```
 
-The dataset (about 8,000 MAL entries) ships with the package: 342 kB packed, parsed on first use in about 20 ms. A new patch version is published whenever the upstream data changes.
+The package holds the code only. The dataset (about 8,000 MAL entries, 350 kB gzipped) is rebuilt every week and downloaded at runtime, so you get new data without updating the package. It works in Node 18+, Bun, Deno, browsers and edge runtimes: anywhere with `fetch`.
 
 ## Usage
 
-`ImdbMalMapping` is a singleton over the bundled dataset. `byMal`, `byImdb` and `resolve` are shortcuts to its methods.
-
 ```ts
-import { ImdbMalMapping } from "imdb-mal-mapping";
+import { loadMapping } from "imdb-mal-mapping";
 
-const mapping = ImdbMalMapping.getInstance(); // same instance every time
+const mapping = await loadMapping(); // downloads the dataset once per process
 mapping.byMal(38524);
 mapping.builtAt; // when the dataset was built
 ```
 
+`loadMapping()` keeps the dataset in memory and checks for a newer one at most once a day: a 100-byte `manifest.json`, with the full dataset downloaded again only when it changed. If a check fails, the dataset it already has keeps being used.
+
+### Keeping the dataset between runs
+
+Without a cache, every new process downloads the dataset. A `DatasetClient` takes a cache and other options:
+
+```ts
+import { DatasetClient } from "imdb-mal-mapping";
+import { fileCache } from "imdb-mal-mapping/node";
+
+const client = new DatasetClient({
+  cache: fileCache(".cache/imdb-mal-mapping.json"),
+  maxAge: 7 * 24 * 60 * 60 * 1000, // check weekly; default: daily
+});
+const mapping = await client.mapping(); // call it per request: it's cheap
+```
+
+A cache is any `{ read(), write(snapshot) }` pair, sync or async, so the dataset can live in Redis, KV, IndexedDB or a database just as well. `DatasetClient` also takes `fetch`, `urls` (your own mirrors) and the resolver's `costs`.
+
+### Doing it yourself
+
+`fetchManifest()` and `fetchIndex()` download the files without any caching, and `AnimeMapping` from `imdb-mal-mapping/core` works over any index you have. This suits servers that refresh on a schedule:
+
+```ts
+import { AnimeMapping } from "imdb-mal-mapping/core";
+import { fetchIndex, fetchManifest } from "imdb-mal-mapping";
+
+const { hash } = await fetchManifest(); // compare with the hash you stored
+const index = await fetchIndex(); // store it; then, anywhere:
+const mapping = new AnimeMapping(index);
+```
+
+### Upgrading from 1.x
+
+1.x bundled the dataset and needed a new release for every data change. In 2.x, `ImdbMalMapping.getInstance()` and the `byMal`/`byImdb`/`resolve` shortcuts are replaced by `await loadMapping()`, which returns the same `AnimeMapping` methods. `imdb-mal-mapping/core` is unchanged, and an `Index` now also carries `schema` and `hash`.
+
 ## Lookups
 
 ```ts
-import { byImdb, byMal } from "imdb-mal-mapping";
-
-byMal(38524);
+mapping.byMal(38524);
 // { malId: 38524, imdbId: "tt2560140", season: 3, episodeOffset: 12, episodes: 10,
 //   title: "Shingeki no Kyojin Season 3 Part 2", type: "TV", year: 2019,
 //   tvdbId: 267440, tmdbId: 1429, tmdbSeason: 3, tmdbEpisodeOffset: 12, source: "fribb" }
 
-byImdb("tt13293588");
+mapping.byImdb("tt13293588");
 // [{ malId: 39535, season: 1, episodeEnd: 11, … },
 //  { malId: 45576, season: 1, episodeOffset: 11, … },
 //  { malId: 51179, season: 2, episodeEnd: 12, … }, …]
@@ -55,9 +87,7 @@ byImdb("tt13293588");
 Pass a provider's season layout for the whole title. Seasons may repeat (one per dub team); repeats are merged, because teams of one provider title share numbering. That matters: one team's layout can explain another's. `episodes` is the list of episode numbers present, or a count.
 
 ```ts
-import { resolve } from "imdb-mal-mapping";
-
-const result = resolve({
+const result = mapping.resolve({
   malId: 51019, // Demon Slayer: Swordsmith Village
   imdbId: "tt9335498", // optional: the IMDb id the provider filed it under
   seasons: [
@@ -104,22 +134,31 @@ How it works (`src/resolver/`): the franchise's MAL entries (everything on the s
 - airing entries whose episode count is behind the provider
 - continuous episode numbering across seasons
 
-## Your own data
+## Tuning
 
-`imdb-mal-mapping/core` has the `AnimeMapping` class without the bundled dataset (`ImdbMalMapping` extends it):
+The resolver's weights can be tuned; see `DEFAULT_COSTS`.
 
 ```ts
-import { AnimeMapping } from "imdb-mal-mapping/core";
-
-const mapping = new AnimeMapping(index); // an Index, as built by scripts/build-index.ts
-mapping.byMal(38524);
-mapping.resolve({ malId: 38524, seasons });
-
-// The resolver's weights can be tuned; see DEFAULT_COSTS.
-const strict = new AnimeMapping(index, { costs: { merge: 2 } });
+const strict = new DatasetClient({ costs: { merge: 2 } });
+const alsoStrict = new AnimeMapping(index, { costs: { merge: 2 } });
 ```
 
 ## Data
+
+### Where it is published
+
+CI rebuilds the dataset every Monday and commits it to the [`data` branch](https://github.com/rosset-nocpes/imdb-mal-mapping/tree/data) when it changed. Changes to `data/overrides.json` are published within minutes of reaching `main`.
+
+| URL                                                                                   | Cache             |
+| ------------------------------------------------------------------------------------- | ----------------- |
+| `https://raw.githubusercontent.com/rosset-nocpes/imdb-mal-mapping/data/v1/` (primary) | 5 min             |
+| `https://cdn.jsdelivr.net/gh/rosset-nocpes/imdb-mal-mapping@data/v1/` (mirror)        | purged on publish |
+
+Each holds `manifest.json` (`{ schema, hash, builtAt, count }`) and `index.json` (the same fields plus `anime`, one entry per line so the branch history shows what changed). Both send CORS headers. A build is only published if it loads, resolves known titles and keeps at least 90% of the published entries, so a broken upstream file can't empty it.
+
+`/v1/` is the data format. Every 2.x release reads v1. A new format would be published under `/v2/` with a new major release, while `/v1/` keeps being updated for older installs.
+
+### Sources
 
 `scripts/build-index.ts` builds the dataset from these sources:
 
@@ -133,7 +172,8 @@ Matches may be incomplete or wrong. Corrections are welcome in `data/overrides.j
 
 ```sh
 bun install
-bun run build:index   # generates src/dataset.ts; add --cache .cache to reuse downloads
+bun run build:index   # writes .data/v1/; add --cache .cache to reuse downloads
+bun run check:dataset .data/v1  # the checks CI runs before publishing
 bun run check         # oxfmt --check, oxlint, tsc, bun test
 bun run format        # oxfmt
 bun run build         # dist/
@@ -141,22 +181,28 @@ bun run build         # dist/
 
 ```
 src/
-  index.ts               entry: ImdbMalMapping + byMal/byImdb/resolve shortcuts
-  core.ts                entry without data: AnimeMapping, types, DEFAULT_COSTS
+  index.ts               entry: core plus downloading the dataset
+  core.ts                entry without network code: AnimeMapping, types, DEFAULT_COSTS
+  node.ts                entry for Node/Bun: fileCache
+  remote/
+    dataset-client.ts    DatasetClient, loadMapping, fetchManifest/fetchIndex, URLs
   mapping/
     anime-store.ts       AnimeStore: the dataset and its lookup tables
     anime-mapping.ts     AnimeMapping: public API over one dataset
-    imdb-mal-mapping.ts  ImdbMalMapping: singleton over the bundled dataset
   resolver/
     provider-layout.ts   ProviderLayout: a provider's seasons, teams merged
     cost-model.ts        CostModel: alignment weights (CostModel.default is shared)
     season-alignment.ts  SeasonAlignment: the dynamic program for one request
     season-resolver.ts   SeasonResolver: picks the franchise, builds the Resolution
 scripts/
-  build-index.ts         downloads sources, writes src/dataset.ts
-  lib/                   SourceDownloader, IndexBuilder, DatasetModule
+  build-index.ts         downloads sources, writes .data/v1/
+  check-dataset.ts       guards a build before CI publishes it
+  lib/                   SourceDownloader, IndexBuilder, DatasetFiles
+.github/workflows/
+  data.yml               weekly: build, check, commit to the data branch
+  release.yml            npm release when package.json has a new version
 ```
 
 ## License
 
-The code is MIT. The bundled data keeps its sources' terms; see [Data](#data).
+The code is MIT. The dataset keeps its sources' terms; see [Sources](#sources).

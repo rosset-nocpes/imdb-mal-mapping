@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { SCHEMA_VERSION } from "../../src/remote/dataset-client.js";
 import type { Anime, Index } from "../../src/types.js";
 
 export type FribbEntry = {
@@ -73,7 +75,21 @@ export class IndexBuilder {
       if (built) anime[built.malId] = built;
     }
     this.#applyOverrides(anime);
-    return { builtAt, count: Object.keys(anime).length, anime };
+    return {
+      schema: SCHEMA_VERSION,
+      hash: IndexBuilder.hash(anime),
+      builtAt,
+      count: Object.keys(anime).length,
+      anime,
+    };
+  }
+
+  /** Ignores the build time, so unchanged data keeps its hash. */
+  static hash(anime: Index["anime"]): string {
+    return createHash("sha256")
+      .update(JSON.stringify(anime))
+      .digest("hex")
+      .slice(0, 16);
   }
 
   #anime(entry: FribbEntry): Anime | undefined {

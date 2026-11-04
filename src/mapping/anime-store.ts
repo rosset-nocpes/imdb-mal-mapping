@@ -2,12 +2,14 @@ import type { Anime, Entry, Index, Match } from "../types.js";
 
 /** The dataset with its lookup tables: MAL id → entry, IMDb id → entries. */
 export class AnimeStore {
+  readonly hash: string;
   readonly builtAt: string;
   readonly count: number;
   readonly #anime: Record<string, Anime>;
   readonly #byImdb = new Map<string, Anime[]>();
 
   constructor(index: Index) {
+    this.hash = index.hash;
     this.builtAt = index.builtAt;
     this.count = index.count;
     this.#anime = index.anime;

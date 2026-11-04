@@ -1,11 +1,13 @@
 /**
- * Builds src/dataset.ts, the bundled index (see scripts/lib/index-builder.ts).
+ * Builds the dataset (see scripts/lib/index-builder.ts) into
+ * `<out>/v<schema>/index.json` and `manifest.json`, the files CI publishes
+ * to the `data` branch.
  *
- * Usage: bun scripts/build-index.ts [--cache dir]
+ * Usage: bun scripts/build-index.ts [--out dir] [--cache dir]
  */
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { DatasetModule } from "./lib/dataset-module.js";
+import { DatasetFiles } from "./lib/dataset-files.js";
 import {
   type FribbEntry,
   IndexBuilder,
@@ -19,11 +21,13 @@ const FRIBB =
 const MANAMI =
   "https://github.com/manami-project/anime-offline-database/releases/latest/download/anime-offline-database-minified.json.zst";
 
+const flag = (name: string) => {
+  const at = process.argv.indexOf(name);
+  return at > 0 ? process.argv[at + 1] : undefined;
+};
+
 const root = join(import.meta.dir, "..");
-const cacheFlag = process.argv.indexOf("--cache");
-const downloader = new SourceDownloader(
-  cacheFlag > 0 ? process.argv[cacheFlag + 1] : undefined,
-);
+const downloader = new SourceDownloader(flag("--cache"));
 
 const [fribb, manami, overrides] = await Promise.all([
   downloader.json<FribbEntry[]>(FRIBB),
@@ -33,10 +37,8 @@ const [fribb, manami, overrides] = await Promise.all([
   ),
 ]);
 
-const dataset = new DatasetModule(
+const files = new DatasetFiles(
   new IndexBuilder(fribb, manami, overrides).build(),
 );
-await dataset.write(join(root, "src/dataset.ts"));
-console.log(
-  `src/dataset.ts: ${dataset.index.count} anime, hash ${dataset.hash}`,
-);
+const dir = await files.write(flag("--out") ?? join(root, ".data"));
+console.log(`${dir}: ${files.index.count} anime, hash ${files.index.hash}`);

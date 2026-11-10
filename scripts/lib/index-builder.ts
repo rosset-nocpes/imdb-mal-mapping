@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { SCHEMA_VERSION } from "../../src/remote/dataset-client.js";
 import type { Anime, Index } from "../../src/types.js";
+import type { WikidataEntry } from "./wikidata-source.js";
 
 export type FribbEntry = {
   type?: string;
@@ -19,22 +20,52 @@ export type ManamiEntry = {
   episodes: number;
   status?: string;
   animeSeason?: { season?: string; year?: number };
+  synonyms: string[];
+  relatedAnime: string[];
+  /** Length of an episode. */
+  duration?: { value?: number; unit?: string };
 };
 
 /** Corrections keyed by MAL id; `null` removes the entry, `$`-keys are comments. */
 export type Overrides = Record<string, Partial<Anime> | null | string>;
 
+/** An id found for a MAL entry Fribb lacks, by Wikidata or a TMDB match. */
+export type Found = Pick<
+  Anime,
+  | "malId"
+  | "imdbId"
+  | "imdbIds"
+  | "season"
+  | "tmdbId"
+  | "tmdbType"
+  | "tmdbSeason"
+> & { source: "wikidata" | "tmdb" };
+
+/** A MAL entry of the offline database, with its MAL id. */
+export type Listed = ManamiEntry & { malId: number };
+
 const QUARTERS = ["WINTER", "SPRING", "SUMMER", "FALL"];
+
+/**
+ * Titles of extras aired alongside a show: specials, recaps, minis. They are
+ * never one of its seasons, even when they air as one starts.
+ */
+export const EXTRA =
+  /\b(?:specials?|recaps?|mini(?:\s+anime)?|extras?|omake|picture\s+drama|pv|cm|digest|soushuuhen|fanwai|tokubetsu-hen|bangai-hen)\b/i;
 
 /**
  * Merges the sources into the dataset:
  *  - Fribb/anime-lists: MAL <-> IMDb/TVDB/TMDB ids, TVDB/TMDB season + episode offset
  *  - manami-project/anime-offline-database (ODbL): titles, type, episode counts, air season
+ *  - Wikidata (CC0): IMDb ids of MAL entries Fribb lacks, seasons by ordinal
+ *  - TMDB matches (scripts/lib/tmdb-source.ts) for the rest, added with `add`
  *  - overrides: hand-made corrections, applied last
  */
 export class IndexBuilder {
   readonly #entries: FribbEntry[];
   readonly #overrides: Overrides;
+  readonly #wikidata: WikidataEntry[];
+  readonly #found: Found[] = [];
   readonly #meta = new Map<number, ManamiEntry>();
   /** How many entries use each IMDb id. */
   readonly #usage = new Map<string, number>();
@@ -45,9 +76,11 @@ export class IndexBuilder {
     fribb: FribbEntry[],
     manami: ManamiEntry[],
     overrides: Overrides,
+    wikidata: WikidataEntry[] = [],
   ) {
     this.#entries = fribb.filter((entry) => entry.mal_id);
     this.#overrides = overrides;
+    this.#wikidata = wikidata;
     for (const entry of manami) {
       for (const source of entry.sources) {
         const malId = Number(
@@ -68,12 +101,38 @@ export class IndexBuilder {
     }
   }
 
-  build(builtAt = new Date().toISOString()): Index {
-    const anime: Record<string, Anime> = {};
-    for (const entry of this.#entries) {
-      const built = this.#anime(entry);
-      if (built) anime[built.malId] = built;
+  /** Adds ids found for entries the sources lack; earlier ones win. */
+  add(found: Iterable<Found>): this {
+    this.#found.push(...found);
+    return this;
+  }
+
+  /** Listed entries of these types that the dataset so far has no id for. */
+  unmapped(types: readonly string[]): Listed[] {
+    const anime = this.#mapped();
+    const unmapped: Listed[] = [];
+    for (const [malId, meta] of this.#meta) {
+      if (!anime[malId] && types.includes(meta.type)) {
+        unmapped.push({ ...meta, malId });
+      }
     }
+    return unmapped;
+  }
+
+  /** Every entry of the offline database, by MAL id. */
+  listed(): Map<number, Listed> {
+    return new Map(
+      [...this.#meta].map(([malId, meta]) => [malId, { ...meta, malId }]),
+    );
+  }
+
+  /** The entries mapped so far, overrides not applied. */
+  mapped(): Readonly<Record<string, Anime>> {
+    return this.#mapped();
+  }
+
+  build(builtAt = new Date().toISOString()): Index {
+    const anime = this.#mapped();
     this.#applyOverrides(anime);
     return {
       schema: SCHEMA_VERSION,
@@ -90,6 +149,115 @@ export class IndexBuilder {
       .update(JSON.stringify(anime))
       .digest("hex")
       .slice(0, 16);
+  }
+
+  #mapped(): Record<string, Anime> {
+    const anime: Record<string, Anime> = {};
+    for (const entry of this.#entries) {
+      const built = this.#anime(entry);
+      if (built) anime[built.malId] = built;
+    }
+    const seasons = new SeasonIndex(Object.values(anime));
+    const found = [
+      ...this.#wikidata.map((entry) => this.#fromWikidata(entry)),
+      ...this.#found,
+    ];
+    for (const entry of found) {
+      if (!entry || anime[entry.malId]) continue;
+      const built = this.#place(entry, seasons);
+      if (built) {
+        anime[built.malId] = built;
+        seasons.add(built);
+      }
+    }
+    return anime;
+  }
+
+  /**
+   * A season of a series when Wikidata numbers it (shows only: a special
+   * filed under its series would play the series), else the item's own id.
+   */
+  #fromWikidata(entry: WikidataEntry): Found | undefined {
+    const meta = this.#meta.get(entry.malId);
+    const type = meta?.type;
+    if (!type) return undefined;
+    const seasons = entry.series.filter((series) => series.season);
+    const distinct = new Set(
+      seasons.map((series) => `${series.imdbId}:${series.season}`),
+    );
+    const [series] = seasons;
+    if (
+      (type === "TV" || type === "ONA") &&
+      series &&
+      distinct.size === 1 &&
+      !EXTRA.test(meta.title)
+    ) {
+      const own = entry.imdbIds.filter((id) => id !== series.imdbId);
+      return {
+        malId: entry.malId,
+        imdbId: series.imdbId,
+        imdbIds: own.length ? [series.imdbId, ...own] : undefined,
+        season: series.season,
+        source: "wikidata",
+      };
+    }
+    const [imdbId, ...others] = entry.imdbIds;
+    if (!imdbId || others.length) return undefined;
+    return {
+      malId: entry.malId,
+      imdbId,
+      season: type === "MOVIE" ? undefined : 1,
+      source: "wikidata",
+    };
+  }
+
+  /**
+   * Builds a found entry, starting its episodes after the entries already
+   * in its season. Unless it aired after all of them and their episode
+   * counts are known, where it starts is a guess, so it is left out.
+   */
+  #place(found: Found, seasons: SeasonIndex): Anime | undefined {
+    const info = this.#meta.get(found.malId);
+    const quarter = QUARTERS.indexOf(info?.animeSeason?.season ?? "");
+    const anime: Anime = {
+      ...found,
+      title: info?.title,
+      type: info?.type,
+      episodes: info?.episodes || undefined,
+      airing:
+        info?.status === "ONGOING" || info?.status === "UPCOMING" || undefined,
+      year: info?.animeSeason?.year || undefined,
+      quarter: quarter >= 0 ? quarter + 1 : undefined,
+    };
+    const before = seasons.of(anime);
+    if (before.length) {
+      const aired = IndexBuilder.#aired(anime);
+      if (
+        aired === undefined ||
+        before.some(
+          (other) =>
+            other.episodes === undefined ||
+            (IndexBuilder.#aired(other) ?? Infinity) >= aired,
+        )
+      ) {
+        return undefined;
+      }
+      const offset = Math.max(
+        ...before.map(
+          (other) => (other.episodeOffset ?? 0) + (other.episodes ?? 0),
+        ),
+      );
+      anime.episodeOffset = offset || undefined;
+      if (anime.tmdbSeason !== undefined && anime.tmdbSeason === anime.season) {
+        anime.tmdbEpisodeOffset = anime.episodeOffset;
+      }
+    }
+    return IndexBuilder.#clean(anime);
+  }
+
+  /** Quarters since year 0, for ordering by air date. */
+  static #aired(anime: Anime): number | undefined {
+    return anime.year ? anime.year * 4 + (anime.quarter ?? 1) - 1 : undefined;
   }
 
   #anime(entry: FribbEntry): Anime | undefined {
@@ -189,5 +357,29 @@ export class IndexBuilder {
     return Object.fromEntries(
       Object.entries(value).filter(([, v]) => v !== undefined && v !== null),
     ) as T;
+  }
+}
+
+/** Entries by IMDb title and season, to place new ones after them. */
+class SeasonIndex {
+  readonly #seasons = new Map<string, Anime[]>();
+
+  constructor(anime: Iterable<Anime>) {
+    for (const entry of anime) this.add(entry);
+  }
+
+  add(anime: Anime): void {
+    if (anime.season === undefined) return;
+    for (const id of anime.imdbIds ?? [anime.imdbId]) {
+      const key = `${id}:${anime.season}`;
+      this.#seasons.set(key, [...(this.#seasons.get(key) ?? []), anime]);
+    }
+  }
+
+  /** The entries already in `anime`'s season of its IMDb title. */
+  of(anime: Anime): Anime[] {
+    return anime.season === undefined
+      ? []
+      : (this.#seasons.get(`${anime.imdbId}:${anime.season}`) ?? []);
   }
 }

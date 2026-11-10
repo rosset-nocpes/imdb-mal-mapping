@@ -25,8 +25,12 @@ export type Anime = {
   /** TMDB season, when TMDB numbers the show differently from TVDB. */
   tmdbSeason?: number;
   tmdbEpisodeOffset?: number;
-  /** fribb: listed; inferred: IMDb id taken from the TVDB/TMDB series; manual: overrides.json. */
-  source: "fribb" | "inferred" | "manual";
+  /**
+   * fribb: listed; inferred: IMDb id taken from the TVDB/TMDB series;
+   * wikidata: listed on Wikidata; tmdb: matched on TMDB by title and air date;
+   * manual: overrides.json.
+   */
+  source: "fribb" | "inferred" | "wikidata" | "tmdb" | "manual";
 };
 
 /** A MAL entry as returned by lookups. */

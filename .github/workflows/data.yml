@@ -35,8 +35,6 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      - run: bun run build:index --out .data
-
       - name: Check out the data branch
         run: |
           if git fetch --depth=1 origin data; then
@@ -44,6 +42,13 @@ jobs:
           else
             git worktree add --orphan -b data published
           fi
+
+      # TMDB matches are kept on the data branch, so each week only new
+      # entries and stale results are looked up. Without the secret, the
+      # kept matches are used as they are.
+      - run: bun run build:index --out .data --tmdb-cache published/sources/tmdb.json
+        env:
+          TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
 
       - name: Check the dataset
         run: bun run check:dataset .data/v1 published/v1
@@ -56,18 +61,23 @@ jobs:
         run: |
           new=$(jq -r .hash ../.data/v1/manifest.json)
           old=$(jq -r .hash v1/manifest.json 2>/dev/null || echo none)
-          if [ "$new" = "$old" ]; then
+          message="sources: refresh TMDB matches"
+          if [ "$new" != "$old" ]; then
+            mkdir -p v1
+            cp ../.data/v1/index.json ../.data/v1/manifest.json v1/
+            git add v1
+            message="data: $new ($(jq -r .count v1/manifest.json) anime)"
+            echo "changed=true" >>"$GITHUB_OUTPUT"
+          fi
+          git add sources 2>/dev/null || true
+          if git diff --cached --quiet; then
             echo "Data unchanged ($new)."
             exit 0
           fi
-          mkdir -p v1
-          cp ../.data/v1/index.json ../.data/v1/manifest.json v1/
-          git add v1
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -qm "data: $new ($(jq -r .count v1/manifest.json) anime)"
+          git commit -qm "$message"
           git push origin data
-          echo "changed=true" >>"$GITHUB_OUTPUT"
 
       # jsDelivr otherwise serves the old files for up to 12 hours.
       - name: Purge the jsDelivr mirror

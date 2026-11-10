@@ -71,17 +71,17 @@ mapping.byImdb("tt13293588");
 //  { malId: 51179, season: 2, episodeEnd: 12, … }, …]
 ```
 
-| Field                                               | Meaning                                                                                                   |
-| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `season`                                            | IMDb/TVDB season. `0` means specials; absent for movies.                                                  |
-| `episodeOffset`                                     | The entry starts after this episode of the season. 12 means MAL episode 1 is S3E13.                       |
-| `episodeEnd`                                        | Last episode of the season belonging to this entry, present when a later entry continues the same season. |
-| `episodes`                                          | MAL episode count; absent while unknown.                                                                  |
-| `tmdbType`                                          | Whether `tmdbId` is a `tv` show or a `movie`. A film can carry its series' TV id (filed under specials).  |
-| `tmdbSeason`, `tmdbEpisodeOffset`, `tmdbEpisodeEnd` | The same range in TMDB's numbering, which can differ from TVDB's.                                         |
-| `airing`                                            | Still airing or upcoming; `episodes` may only count what has aired.                                       |
-| `imdbIds`                                           | Every known IMDb id when there are several; `imdbId` is the series one.                                   |
-| `source`                                            | `fribb` listed, `inferred` IMDb id taken from the TVDB/TMDB series, `manual` from `data/overrides.json`.  |
+| Field                                               | Meaning                                                                                                                                                                               |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `season`                                            | IMDb/TVDB season. `0` means specials; absent for movies.                                                                                                                              |
+| `episodeOffset`                                     | The entry starts after this episode of the season. 12 means MAL episode 1 is S3E13.                                                                                                   |
+| `episodeEnd`                                        | Last episode of the season belonging to this entry, present when a later entry continues the same season.                                                                             |
+| `episodes`                                          | MAL episode count; absent while unknown.                                                                                                                                              |
+| `tmdbType`                                          | Whether `tmdbId` is a `tv` show or a `movie`. A film can carry its series' TV id (filed under specials).                                                                              |
+| `tmdbSeason`, `tmdbEpisodeOffset`, `tmdbEpisodeEnd` | The same range in TMDB's numbering, which can differ from TVDB's.                                                                                                                     |
+| `airing`                                            | Still airing or upcoming; `episodes` may only count what has aired.                                                                                                                   |
+| `imdbIds`                                           | Every known IMDb id when there are several; `imdbId` is the series one.                                                                                                               |
+| `source`                                            | `fribb` listed, `inferred` IMDb id taken from the TVDB/TMDB series, `wikidata` listed on Wikidata, `tmdb` matched on TMDB by title and air date, `manual` from `data/overrides.json`. |
 
 `byMal` returns `undefined` and `byImdb` returns `[]` for unknown ids.
 
@@ -167,7 +167,11 @@ Each holds `manifest.json` (`{ schema, hash, builtAt, count }`) and `index.json`
 
 - [Fribb/anime-lists](https://github.com/Fribb/anime-lists): MAL ↔ IMDb/TVDB/TMDB ids, TVDB and TMDB seasons and episode offsets. Entries without an IMDb id inherit their TVDB/TMDB series' id. The repository has no license file.
 - [manami-project/anime-offline-database](https://github.com/manami-project/anime-offline-database), under [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/): titles, type, episode counts and air season.
+- [Wikidata](https://www.wikidata.org), under [CC0](https://creativecommons.org/publicdomain/zero/1.0/): IMDb ids of MAL entries Fribb lacks. A TV or ONA entry that Wikidata lists as a numbered season of a series joins that series' IMDb title in that season; anything else needs an IMDb id of its own (a special filed under its series would otherwise play the series' episodes).
+- [TMDB](https://www.themoviedb.org) for the TV, ONA and film entries still unmapped (this product uses the TMDB API but is not endorsed or certified by TMDB). An entry matches a show or film when one of its titles or synonyms is one of TMDB's names or alternative titles for it, the genre is animation and the year fits; a show's season is the one starting in the entry's quarter. A related entry's show leads to new seasons the lists don't have yet. On a show the dataset already has, the season must start in the entry's quarter, its episodes must run about as long as the show's, and TMDB must number the seasons as the show's IMDb title does. Matches are kept in `sources/tmdb.json` on the data branch; misses are retried after four weeks (a week while airing), matches after three months.
 - `data/overrides.json`: manual corrections keyed by MAL id. Fields replace the generated ones, and `null` removes an entry.
+
+Fribb's entries come first; Wikidata and TMDB only add entries it lacks. An added entry joins a season that already has entries only when it aired after all of them and their episode counts are known, so where its episodes start is certain.
 
 Matches may be incomplete or wrong. Corrections are welcome in `data/overrides.json`.
 
@@ -176,6 +180,8 @@ Matches may be incomplete or wrong. Corrections are welcome in `data/overrides.j
 ```sh
 bun install
 bun run build:index   # writes .data/v1/; add --cache .cache to reuse downloads
+                      # TMDB_TOKEN=<read access token> looks up new TMDB matches;
+                      # without it, matches cached in .cache/tmdb.json are used
 bun run check:dataset .data/v1  # the checks CI runs before publishing
 bun run check         # oxfmt --check, oxlint, tsc, bun test
 bun run format        # oxfmt
@@ -200,9 +206,11 @@ src/
 scripts/
   build-index.ts         downloads sources, writes .data/v1/
   check-dataset.ts       guards a build before CI publishes it
-  lib/                   SourceDownloader, IndexBuilder, DatasetFiles
+  lib/                   SourceDownloader, IndexBuilder, DatasetFiles,
+                         Wikidata and TMDB sources
 .github/workflows/
   data.yml               weekly: build, check, commit to the data branch
+                         (TMDB matches need the TMDB_TOKEN secret)
   release.yml            npm release when package.json has a new version
 ```
 
